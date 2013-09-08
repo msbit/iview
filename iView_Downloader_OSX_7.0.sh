@@ -21,6 +21,13 @@ AUTH_XML=${TEMPDIR}/auth.xml
 TEMP_TXT=${TEMPDIR}/temp.txt
 SHOW_INDEX=${TEMPDIR}/showindex
 
+function jsonval {
+  JSON=${1}
+  PROPERTY=${2}
+  TEMP=$(echo ${JSON} | sed 's/\\\\\//\//g' | sed 's/[{}]//g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed 's/\"\:\"/\|/g' | sed 's/[\,]/ /g' | sed 's/\"//g' | grep -w ${PROPERTY})
+  echo ${TEMP##*|}
+}
+
 function searchShows() {
   echo "Enter search string (not case sensitive):"
   read SEARCHSTRING
@@ -73,8 +80,8 @@ function downloadShowList() {
   echo "Reading Index..."
 
   #This will separate the lines out with either a series or a show descriptor on each line
-  cat ${SHOW_INDEX} | sed 's/{\"a\"\:\"/\
-/g' > ${SERIES}
+  cat ${SHOW_INDEX} | sed -e 's/{"a":"/\
+{"a":"/g' -e '/^\[$/d' -e '/^\]$/d' > ${SERIES}
 
   LINES=$(cat ${SERIES} | wc -l | sed 's/ //g')
   COUNTER=1
@@ -82,7 +89,8 @@ function downloadShowList() {
     let COUNTER=COUNTER+1
 
     CURRENT=$(sed "${COUNTER}!d" ${SERIES})
-    ID=$(echo "${CURRENT}" | sed 's/\".*//g')
+    ID=$(jsonval "${CURRENT}" a)
+    echo ${ID}
     COUNT=$(echo ${ID} | wc -m)
 
     # If 7 chars then find showpath and add to list otherwise grab the series name for the next few shows (8 defines a series, 7 defines a show)
