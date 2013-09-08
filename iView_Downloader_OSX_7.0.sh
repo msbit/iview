@@ -1,4 +1,5 @@
 #!/bin/bash
+
 SLEEPTIME=5s
 MAXRETRIES=5
 SWFPARAMS='-w 96cc76f1d5385fb5cda6e2ce5c73323a399043d0bb6c687edd807e5c73c42b37 -x 2122'
@@ -8,21 +9,27 @@ FFMPEG='ffmpeg'
 FLVSTREAMER='rtmpdump_universal'
 
 TEMPDIR=$(mktemp -d -t iview)
-TEMPINDEX=${TEMPDIR}/index
-TEMPINDEXGZ=${TEMPDIR}/index.gz
 DOWNLOAD_LIST=${TEMPDIR}/download_list.txt
 COMPLETE_DOWNLOADS=${TEMPDIR}/CompleteDownloads.txt
 INCOMPLETE_DOWNLOADS=${TEMPDIR}/IncompleteDownloads.txt
+SEARCH_RESULTS=${TEMPDIR}/searchresults.txt
+RAWSEARCH_RESULTS=${TEMPDIR}/rawsearchresults.txt
+POSSIBLE_SHOWS=${TEMPDIR}/possibleshows.txt
+SERIES=${TEMPDIR}/series.txt
+FILTERED_SHOWS=${TEMPDIR}/filtered_shows.txt
+AUTH_XML=${TEMPDIR}/auth.xml
+TEMP_TXT=${TEMPDIR}/temp.txt
+SHOW_INDEX=${TEMPDIR}/showindex
 
 function searchShows() {
   echo "Enter search string (not case sensitive):"
   read SEARCHSTRING
   
-  cat ${TEMPDIR}/possibleshows.txt | grep -i ${SEARCHSTRING} > ${TEMPDIR}/rawsearchresults.txt
-  nl ${TEMPDIR}/rawsearchresults.txt | sed 's/ *//' > ${TEMPDIR}/searchresults.txt
-  cat ${TEMPDIR}/searchresults.txt | sed 's/\(.*\) .*/\1/'
+  cat ${POSSIBLE_SHOWS} | grep -i ${SEARCHSTRING} > ${RAWSEARCH_RESULTS}
+  nl ${RAWSEARCH_RESULTS} | sed 's/ *//' > ${SEARCH_RESULTS}
+  cat ${SEARCH_RESULTS} | sed 's/\(.*\) .*/\1/'
 
-  LINES=$(cat ${TEMPDIR}/searchresults.txt | wc -l | sed 's/ //g')
+  LINES=$(cat ${SEARCH_RESULTS} | wc -l | sed 's/ //g')
   case ${LINES} in
     0)
       echo "No matching results found"
@@ -38,12 +45,12 @@ function searchShows() {
 
   case ${NUMBER} in
     a|A)
-      cat ${TEMPDIR}/rawsearchresults.txt | sed 's/.* //' >> ${DOWNLOAD_LIST}
+      cat ${RAWSEARCH_RESULTS} | sed 's/.* //' >> ${DOWNLOAD_LIST}
       ;;
     0)
       ;;
     *)
-      SHOWPATH=$(grep -w ^"${NUMBER}" ${TEMPDIR}/searchresults.txt | sed "s/^${NUMBER}//g" | tr -d '\t')
+      SHOWPATH=$(grep -w ^"${NUMBER}" ${SEARCH_RESULTS} | sed "s/^${NUMBER}//g" | tr -d '\t')
       echo "${SHOWPATH}" >> ${DOWNLOAD_LIST}
       ;;
   esac
@@ -51,32 +58,30 @@ function searchShows() {
 
 function downloadShowList() {
   # Erase old lists
-  rm ${TEMPDIR}/possibleshows.txt
-  rm ${TEMPINDEX}
+  rm ${POSSIBLE_SHOWS}
+  TEMPINDEX=$(mktemp -t iview-temp-index)
 
   echo "Downloading Index..."
 
-  for CATEGORY in "0-9" "a-c" "d-k" "l-p" "q-z"
+  for CATEGORY in "0-z"
   do
-    curl -q "http://tviview.abc.net.au/iview/api2/?keyword=${CATEGORY}" > ${TEMPINDEXGZ}
-    gunzip ${TEMPINDEXGZ}
-    mv ${TEMPINDEXGZ} ${TEMPINDEX}
-    cat ${TEMPINDEX} > ${TEMPDIR}/showindex
+    curl -q "http://tviview.abc.net.au/iview/api2/?keyword=${CATEGORY}" >> ${TEMPINDEX}
+    cat ${TEMPINDEX} >> ${SHOW_INDEX}
     rm ${TEMPINDEX}
   done
 
   echo "Reading Index..."
 
   #This will separate the lines out with either a series or a show descriptor on each line
-cat ${TEMPDIR}/showindex | sed 's/{\"a\"\:\"/\
-/g' > ${TEMPDIR}/series.txt
+  cat ${SHOW_INDEX} | sed 's/{\"a\"\:\"/\
+/g' > ${SERIES}
 
-  LINES=$(cat ${TEMPDIR}/series.txt | wc -l | sed 's/ //g')
+  LINES=$(cat ${SERIES} | wc -l | sed 's/ //g')
   COUNTER=1
   while [ ${COUNTER} -lt ${LINES} ]; do
     let COUNTER=COUNTER+1
 
-    CURRENT=$(sed "${COUNTER}!d" ${TEMPDIR}/series.txt)
+    CURRENT=$(sed "${COUNTER}!d" ${SERIES})
     ID=$(echo "${CURRENT}" | sed 's/\".*//g')
     COUNT=$(echo ${ID} | wc -m)
 
@@ -86,15 +91,15 @@ cat ${TEMPDIR}/showindex | sed 's/{\"a\"\:\"/\
 
       SHOWNAME=$(echo "${CURRENT}" | sed 's/\".*//g' | sed 's,\/,-,g' | sed 's/\&amp\;/\&/')  # This also replaces / with - and replaces &amp; with &
       SHOWPATH=$(echo "${CURRENT}" | sed 's/.*\"//g')
-      echo "${SERIESNAME} ${SHOWNAME} ${SHOWPATH}" >> ${TEMPDIR}/possibleshows.txt
+      echo "${SERIESNAME} ${SHOWNAME} ${SHOWPATH}" >> ${POSSIBLE_SHOWS}
     else
       CURRENT=$(echo "${CURRENT}" | sed 's/[0-9]*\"\,\"b\"\:\"//' | sed 's/\\//g' | sed 's/mp4.*/\mp4/' | sed 's/flv.*/flv/') 
       SERIESNAME=$(echo "${CURRENT}" | sed 's/\".*//g' | sed 's,\/,-,g' | sed 's/\&amp\;/\&/')   # This also replaces / with - and replaces &amp; with 
     fi
   done
 
-  sort ${TEMPDIR}/possibleshows.txt > ${TEMPDIR}/temp.txt
-  mv ${TEMPDIR}/temp.txt ${TEMPDIR}/possibleshows.txt
+  sort ${POSSIBLE_SHOWS} > ${TEMP_TXT}
+  mv ${TEMP_TXT} ${POSSIBLE_SHOWS}
 }
 
 function getShow() {
@@ -139,8 +144,8 @@ function getShow() {
 
   case ${MANUAL} in
     'false')
-      cat ${TEMPDIR}/possibleshows.txt | nl | sed 's/ *//' > ${TEMPDIR}/filtered_shows.txt
-      cat ${TEMPDIR}/filtered_shows.txt | sed 's/\(.*\) .*/\1/'
+      cat ${POSSIBLE_SHOWS} | nl | sed 's/ *//' > ${FILTERED_SHOWS}
+      cat ${FILTERED_SHOWS} | sed 's/\(.*\) .*/\1/'
 
       echo "Select a number to add a show to download list, 'a' adds all,"
       echo "0 adds nothing, and 's' allows you to search this list:"
@@ -148,7 +153,7 @@ function getShow() {
 
       case ${NUMBER} in
         a|A)
-          cat ${TEMPDIR}/possibleshows.txt >> ${DOWNLOAD_LIST}
+          cat ${POSSIBLE_SHOWS} >> ${DOWNLOAD_LIST}
           ;;
         s|S)
           searchShows
@@ -156,7 +161,7 @@ function getShow() {
         0)
           ;;
         *)
-          SHOWPATH=$(grep -w ^"${NUMBER}" ${TEMPDIR}/filtered_shows.txt | sed "s/^${NUMBER}//g" | tr -d '\t')
+          SHOWPATH=$(grep -w ^"${NUMBER}" ${FILTERED_SHOWS} | sed "s/^${NUMBER}//g" | tr -d '\t')
           echo "${SHOWPATH}" >> ${DOWNLOAD_LIST}
           ;;
       esac
@@ -179,9 +184,9 @@ function downloadShow() {
 
     echo "Attempt ${RETRY} of ${MAXRETRIES}"
     echo "Retrieving Token..."
-    curl -q http://tviview.abc.net.au/iview/auth/?v2 > ${TEMPDIR}/auth.xml
-    TOKEN=$(cat ${TEMPDIR}/auth.xml | grep token | sed 's/.*<token>//g' | sed 's/\\&amp;/\\&/g' | sed 's,</token>.*,,g' | sed 's/ //g')
-    HOST=$(cat ${TEMPDIR}/auth.xml | grep host | sed 's/<host>//g' | sed 's,</host>,,g' | sed 's/ //g' | tr -d '\r')
+    curl -q http://tviview.abc.net.au/iview/auth/?v2 > ${AUTH_XML}
+    TOKEN=$(cat ${AUTH_XML} | grep token | sed 's/.*<token>//g' | sed 's/\\&amp;/\\&/g' | sed 's,</token>.*,,g' | sed 's/ //g')
+    HOST=$(cat ${AUTH_XML} | grep host | sed 's/<host>//g' | sed 's,</host>,,g' | sed 's/ //g' | tr -d '\r')
 
     case ${SHOWEXT} in
       "mp4")
