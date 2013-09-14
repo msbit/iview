@@ -3,7 +3,9 @@
 import json
 import urllib2
 import sys
+import socket
 import xml.etree.ElementTree as ET
+from rtmp_protocol import RtmpClient
 
 show_id = sys.argv[1]
 
@@ -41,6 +43,16 @@ if selected_show == None:
 xml_tuple = parse_auth_xml()
 print xml_tuple
 server_base = xml_tuple['server'][:-(len('ondemand'))]
+server_ip = socket.gethostbyname('cp53909.edgefcs.net')
 
 for episode in selected_show['f']:
-  print "rtmpdump --resume -r \"%s%s%s\" -t \"%s?auth=%s\" -o foo.flv -W http://www.abc.net.au/iview/images/iview.jpg" % (server_base, xml_tuple['path'], episode['n'], xml_tuple['server'], xml_tuple['tokenhd'])
+  cl = RtmpClient(ip = server_ip,
+    port = 1935,
+    tc_url = xml_tuple['server'],
+    page_url = xml_tuple['path'],
+    swf_url = 'http://www.abc.net.au/iview/images/iview.jpg',
+    app = 'myapp')
+  cl.connect([])
+  cl.call(proc_name='createStream')
+  cl.call(proc_name='play', parameters=['user1'])
+  cl.handle_messages()
